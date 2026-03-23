@@ -12,185 +12,454 @@ class DrawingScreen extends StatefulWidget {
 }
 
 class _DrawingScreenState extends State<DrawingScreen> {
-  final List<Offset?> points = [];
-  final ImageModel model = ImageModel();
-  int? prediction;
-  String? feedback;
+  final List<Offset?> _points = [];
+  final ImageModel _model = ImageModel();
+  final Random _random = Random();
 
-  // List of tasks (question + correct answer)
-  final List<Map<String, dynamic>> tasks = [
-    {"question": "What is 2 + 2?", "answer": 4},
-    {"question": "What is 5 - 3?", "answer": 2},
-    {"question": "What is 3 × 3?", "answer": 9},
-    {"question": "What is 10 ÷ 2?", "answer": 5},
-    {"question": "What is 7 + 6?", "answer": 13},
-    {"question": "What is 8 - 4?", "answer": 4},
-  ];
+  String? _predictedLabel;
+  String? _feedback;
+  bool _isProcessing = false;
+  int _score = 0;
+  int _totalAttempts = 0;
 
-  int currentTaskIndex = 0;
+  // Store actual canvas size
+  Size _canvasSize = const Size(300, 300);
 
-  String get currentQuestion => tasks[currentTaskIndex]["question"];
-  int get expectedAnswer => tasks[currentTaskIndex]["answer"];
+  late Map<String, dynamic> _currentTask;
 
   @override
   void initState() {
     super.initState();
-    model.loadModel().then((_) {
-      setState(() {}); // model ready
+    _currentTask = _generateTask();
+    _model.loadModel().then((_) {
+      setState(() {});
     });
   }
 
+  // ── Auto-generate a random math task ─────────────────────
+  Map<String, dynamic> _generateTask() {
+    int a, b, answer;
+    String question;
+
+    // All digits 0-9 are now allowed
+    final type = _random.nextInt(4);
+
+    switch (type) {
+      case 0: // Addition — answer 0–9
+        a = _random.nextInt(5);
+        b = _random.nextInt(10 - a);
+        answer = a + b;
+        question = "What is $a + $b?";
+        break;
+
+      case 1: // Subtraction — answer 0–9
+        b = _random.nextInt(9);
+        a = b + _random.nextInt(10 - b);
+        answer = a - b;
+        question = "What is $a - $b?";
+        break;
+
+      case 2: // Multiplication — answer 0–9
+        a = _random.nextInt(4);
+        b = _random.nextInt(4);
+        answer = a * b;
+        question = "What is $a × $b?";
+        break;
+
+      case 3: // Division — clean division, answer 1–9
+        answer = _random.nextInt(8) + 1;
+        b = _random.nextInt(4) + 1;
+        a = answer * b;
+        question = "What is $a ÷ $b?";
+        break;
+
+      default:
+        a = _random.nextInt(9);
+        b = _random.nextInt(9 - a);
+        answer = a + b;
+        question = "What is $a + $b?";
+    }
+
+    return {
+      "question": question,
+      "answer": answer,
+      "expectedLabel": _numberToLabel(answer),
+    };
+  }
+
+  // ── Convert number to class label ─────────────────────────
+  String _numberToLabel(int number) {
+    const labels = {
+      0: "zero",
+      1: "one",
+      2: "two",
+      3: "three",
+      4: "four",
+      5: "five",
+      6: "six",
+      7: "seven",
+      8: "eight",
+      9: "nine",
+    };
+    return labels[number] ?? "zero";
+  }
+
+  // ── Predict from canvas ───────────────────────────────────
   Future<void> _predict() async {
-    if (!model.isReady) {
-      setState(() {
-        feedback = "⚠️ Model not loaded yet. Please wait.";
-      });
+    if (!_model.isReady) {
+      setState(() => _feedback = "Model not loaded yet.");
+      return;
+    }
+    if (_points.isEmpty) {
+      setState(() => _feedback = "Please draw a number first!");
       return;
     }
 
-    final recorder = ui.PictureRecorder();
-    final canvas = Canvas(recorder);
-
-    canvas.drawColor(Colors.white, BlendMode.src);
-
-    final paint = Paint()
-      ..color = Colors.black
-      ..strokeWidth = 12.0
-      ..strokeCap = StrokeCap.round;
-
-    for (int i = 0; i < points.length - 1; i++) {
-      if (points[i] != null && points[i + 1] != null) {
-        canvas.drawLine(points[i]!, points[i + 1]!, paint);
-      }
-    }
-
-    final picture = recorder.endRecording();
-    final img = await picture.toImage(280, 280);
-    final byteData = await img.toByteData(format: ui.ImageByteFormat.png);
-
-    final bytes = byteData!.buffer.asUint8List();
-    final result = model.predict(bytes);
-
     setState(() {
-      prediction = result;
-
-      if (prediction == expectedAnswer) {
-        feedback = "✅ Correct! $currentQuestion = $expectedAnswer.";
-      } else {
-        feedback =
-        "❌ Oops! $currentQuestion = $expectedAnswer, but you wrote $prediction.";
-      }
+      _isProcessing = true;
+      _feedback = null;
     });
+
+    try {
+      final recorder = ui.PictureRecorder();
+      final canvas = Canvas(recorder);
+      final double w = _canvasSize.width;
+      final double h = _canvasSize.height;
+
+      // ✅ WHITE background + BLACK strokes
+      canvas.drawRect(
+        Rect.fromLTWH(0, 0, w, h),
+        Paint()..color = const ui.Color(0xFFFFFFFF),
+      );
+
+      final paint = Paint()
+        ..color = const ui.Color(0xFF000000)
+        ..strokeWidth = 20.0
+        ..strokeCap = StrokeCap.round
+        ..strokeJoin = StrokeJoin.round;
+
+      for (int i = 0; i < _points.length - 1; i++) {
+        if (_points[i] != null && _points[i + 1] != null) {
+          canvas.drawLine(_points[i]!, _points[i + 1]!, paint);
+        }
+      }
+
+      final picture = recorder.endRecording();
+      final image = await picture.toImage(w.toInt(), h.toInt());
+      final byteData = await image.toByteData(
+        format: ui.ImageByteFormat.png,
+      );
+      final bytes = byteData!.buffer.asUint8List();
+
+      final String predicted    = _model.predict(bytes);
+      final String expected     = _currentTask["expectedLabel"];
+      final int expectedAnswer  = _currentTask["answer"];
+
+      _totalAttempts++;
+
+      String feedbackText;
+      if (predicted == expected) {
+        _score++;
+        feedbackText =
+        "✅ Correct! ${_currentTask["question"]} = $expectedAnswer";
+      } else {
+        feedbackText =
+        "❌ Not quite! ${_currentTask["question"]} = $expectedAnswer\n"
+            "You wrote: $predicted";
+      }
+
+      setState(() {
+        _predictedLabel = predicted;
+        _feedback       = feedbackText;
+        _isProcessing   = false;
+      });
+    } catch (e) {
+      setState(() {
+        _feedback     = "❌ Error: $e";
+        _isProcessing = false;
+      });
+    }
   }
 
   void _clear() {
     setState(() {
-      points.clear();
-      prediction = null;
-      feedback = null;
+      _points.clear();
+      _predictedLabel = null;
+      _feedback       = null;
     });
   }
 
   void _nextTask() {
     setState(() {
-      currentTaskIndex = (currentTaskIndex + 1) % tasks.length;
-      points.clear();
-      prediction = null;
-      feedback = null;
-    });
-  }
-
-  void _randomTask() {
-    final random = Random();
-    setState(() {
-      currentTaskIndex = random.nextInt(tasks.length);
-      points.clear();
-      prediction = null;
-      feedback = null;
+      _currentTask    = _generateTask();
+      _points.clear();
+      _predictedLabel = null;
+      _feedback       = null;
     });
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text("Math Practice")),
+      backgroundColor: const Color(0xFFF5F5F5),
+      appBar: AppBar(
+        title: const Text("Math Practice"),
+        backgroundColor: Colors.deepPurple,
+        foregroundColor: Colors.white,
+        actions: [
+          Center(
+            child: Padding(
+              padding: const EdgeInsets.only(right: 16),
+              child: Text(
+                "Score: $_score / $_totalAttempts",
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
       body: Column(
         children: [
-          Padding(
-            padding: const EdgeInsets.all(12),
-            child: Text(
-              currentQuestion,
-              style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+          // ── Question card ─────────────────────────────
+          Container(
+            width: double.infinity,
+            margin: const EdgeInsets.all(16),
+            padding: const EdgeInsets.symmetric(
+                vertical: 20, horizontal: 16),
+            decoration: BoxDecoration(
+              color: Colors.deepPurple,
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.deepPurple.withOpacity(0.3),
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: Column(
+              children: [
+                const Text(
+                  "Solve this:",
+                  style: TextStyle(
+                    color: Colors.white70,
+                    fontSize: 14,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  _currentTask["question"],
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 32,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  "Draw your answer below",
+                  style: TextStyle(
+                    color: Colors.white60,
+                    fontSize: 13,
+                  ),
+                ),
+              ],
             ),
           ),
+
+          // ── Drawing canvas ────────────────────────────
           Expanded(
-            child: GestureDetector(
-              onPanUpdate: (details) {
-                setState(() {
-                  points.add(details.localPosition);
-                });
-              },
-              onPanEnd: (_) => points.add(null),
-              child: CustomPaint(
-                painter: DrawPainter(points),
-                size: Size.infinite,
+            child: Container(
+              margin: const EdgeInsets.symmetric(horizontal: 16),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: Colors.deepPurple.withOpacity(0.3),
+                  width: 2,
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.05),
+                    blurRadius: 8,
+                  ),
+                ],
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(14),
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    _canvasSize = Size(
+                      constraints.maxWidth,
+                      constraints.maxHeight,
+                    );
+                    return GestureDetector(
+                      onPanUpdate: (details) {
+                        setState(() {
+                          _points.add(details.localPosition);
+                        });
+                      },
+                      onPanEnd: (_) => _points.add(null),
+                      child: CustomPaint(
+                        painter: _DrawPainter(_points),
+                        size: Size.infinite,
+                      ),
+                    );
+                  },
+                ),
               ),
             ),
           ),
-          if (prediction != null)
+
+          // ── Predicted label ───────────────────────────
+          if (_predictedLabel != null)
             Padding(
-              padding: const EdgeInsets.all(12),
+              padding: const EdgeInsets.symmetric(
+                  horizontal: 16, vertical: 6),
               child: Text(
-                "Predicted Number: $prediction",
+                "You wrote: $_predictedLabel",
                 style: const TextStyle(
-                    fontSize: 24, fontWeight: FontWeight.bold),
+                  fontSize: 18,
+                  color: Colors.deepPurple,
+                  fontWeight: FontWeight.w500,
+                ),
               ),
             ),
-          if (feedback != null)
-            Padding(
+
+          // ── Feedback card ─────────────────────────────
+          if (_feedback != null)
+            Container(
+              margin: const EdgeInsets.symmetric(
+                  horizontal: 16, vertical: 4),
               padding: const EdgeInsets.all(12),
-              child: Text(
-                feedback!,
-                style: TextStyle(
-                  fontSize: 20,
-                  color: feedback!.contains("Correct")
+              decoration: BoxDecoration(
+                color: _feedback!.contains("✅")
+                    ? Colors.green.shade50
+                    : Colors.red.shade50,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: _feedback!.contains("✅")
                       ? Colors.green
                       : Colors.red,
                 ),
               ),
+              child: Text(
+                _feedback!,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: _feedback!.contains("✅")
+                      ? Colors.green.shade800
+                      : Colors.red.shade800,
+                ),
+              ),
             ),
+
+          // ── Buttons ───────────────────────────────────
           Padding(
-            padding: const EdgeInsets.all(12),
-            child: Wrap(
-              spacing: 12,
-              runSpacing: 12,
-              alignment: WrapAlignment.center,
+            padding: const EdgeInsets.all(16),
+            child: Row(
               children: [
-                ElevatedButton(onPressed: _predict, child: const Text("Submit")),
-                ElevatedButton(onPressed: _clear, child: const Text("Clear")),
-                ElevatedButton(onPressed: _nextTask, child: const Text("Next Task")),
-                ElevatedButton(onPressed: _randomTask, child: const Text("Random Task")),
+                // Clear
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: _clear,
+                    icon: const Icon(Icons.refresh),
+                    label: const Text("Clear"),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.deepPurple,
+                      side: const BorderSide(
+                          color: Colors.deepPurple),
+                      padding: const EdgeInsets.symmetric(
+                          vertical: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+
+                // Submit
+                Expanded(
+                  flex: 2,
+                  child: ElevatedButton.icon(
+                    onPressed: _isProcessing ? null : _predict,
+                    icon: _isProcessing
+                        ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                        : const Icon(Icons.check),
+                    label: Text(
+                        _isProcessing ? "Checking..." : "Submit"),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.deepPurple,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(
+                          vertical: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+
+                // Next
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: _nextTask,
+                    icon: const Icon(Icons.arrow_forward),
+                    label: const Text("Next"),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.green,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(
+                          vertical: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                  ),
+                ),
               ],
             ),
           ),
-          const SizedBox(height: 20),
         ],
       ),
     );
   }
 }
 
-class DrawPainter extends CustomPainter {
+// ── Canvas painter ─────────────────────────────────────────
+class _DrawPainter extends CustomPainter {
   final List<Offset?> points;
-
-  DrawPainter(this.points);
+  _DrawPainter(this.points);
 
   @override
   void paint(Canvas canvas, Size size) {
+    // White background
+    canvas.drawRect(
+      Rect.fromLTWH(0, 0, size.width, size.height),
+      Paint()..color = Colors.white,
+    );
+
+    // Black strokes
     final paint = Paint()
       ..color = Colors.black
-      ..strokeWidth = 12
-      ..strokeCap = StrokeCap.round;
+      ..strokeWidth = 20
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
 
     for (int i = 0; i < points.length - 1; i++) {
       if (points[i] != null && points[i + 1] != null) {
