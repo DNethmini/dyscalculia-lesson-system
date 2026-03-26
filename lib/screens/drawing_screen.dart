@@ -3,6 +3,8 @@ import 'dart:typed_data';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import '../ml/image_model.dart';
+import '../services/progress_service.dart';
+import 'drawing_progress_screen.dart';
 
 class DrawingScreen extends StatefulWidget {
   const DrawingScreen({super.key});
@@ -126,7 +128,7 @@ class _DrawingScreenState extends State<DrawingScreen> {
       final double w = _canvasSize.width;
       final double h = _canvasSize.height;
 
-      // ✅ WHITE background + BLACK strokes
+
       canvas.drawRect(
         Rect.fromLTWH(0, 0, w, h),
         Paint()..color = const ui.Color(0xFFFFFFFF),
@@ -156,6 +158,15 @@ class _DrawingScreenState extends State<DrawingScreen> {
       final int expectedAnswer  = _currentTask["answer"];
 
       _totalAttempts++;
+      final bool isCorrect = predicted == expected;
+      if (isCorrect) _score++;
+
+      await ProgressService.saveDrawingAttempt(
+        isCorrect: isCorrect,
+        question:  _currentTask["question"],
+        answer:    expectedAnswer,
+        predicted: predicted,
+      );
 
       String feedbackText;
       if (predicted == expected) {
@@ -175,7 +186,7 @@ class _DrawingScreenState extends State<DrawingScreen> {
       });
     } catch (e) {
       setState(() {
-        _feedback     = "❌ Error: $e";
+        _feedback     = "Error: $e";
         _isProcessing = false;
       });
     }
@@ -207,6 +218,19 @@ class _DrawingScreenState extends State<DrawingScreen> {
         backgroundColor: Colors.deepPurple,
         foregroundColor: Colors.white,
         actions: [
+          IconButton(
+            icon: const Icon(
+              Icons.bar_chart_rounded
+            ),
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                  builder: (_)=>
+                      const DrawingProgressScreen(),
+            ),
+          ),
+          tooltip: "My Progress",
+          ),
           Center(
             child: Padding(
               padding: const EdgeInsets.only(right: 16),

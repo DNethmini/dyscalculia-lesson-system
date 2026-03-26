@@ -20,9 +20,9 @@ class ImageModel {
       );
       _classNames = List<String>.from(jsonDecode(jsonStr));
       _isLoaded = true;
-      print("✅ Model loaded. Classes: $_classNames");
+      print("Model loaded. Classes: $_classNames");
     } catch (e) {
-      print("❌ Failed to load model: $e");
+      print("Failed to load model: $e");
     }
   }
 
@@ -57,7 +57,7 @@ class ImageModel {
       }
     }
 
-    print("🔍 Bounding box: found=$found, "
+    print("Bounding box: found=$found, "
         "top=$top, bottom=$bottom, "
         "left=$left, right=$right");
 
@@ -96,13 +96,13 @@ class ImageModel {
           width: cropW,
           height: cropH,
         );
-        print("✂️ Cropped to: ${cropped.width}x${cropped.height}");
+        print("Cropped to: ${cropped.width}x${cropped.height}");
       } else {
-        print("⚠️ Crop too small, using full image");
+        print("Crop too small, using full image");
         cropped = grayscale;
       }
     } else {
-      print("⚠️ No stroke found, using full image");
+      print("No stroke found, using full image");
       cropped = grayscale;
     }
 
@@ -126,10 +126,10 @@ class ImageModel {
 
     double maxVal = input.reduce((a, b) => a > b ? a : b);
     double minVal = input.reduce((a, b) => a < b ? a : b);
-    print("🖼️ Input stats — min: $minVal, max: $maxVal");
+    print("Input stats — min: $minVal, max: $maxVal");
 
     if (maxVal < 0.1) {
-      print("❌ WARNING: Image appears blank!");
+      print("WARNING: Image appears blank!");
     }
 
     return input;
@@ -154,7 +154,7 @@ class ImageModel {
       List<double> scores = List<double>.from(output[0]);
 
       // Print only scores above 1%
-      print("📊 Scores:");
+      print("Scores:");
       for (int i = 0; i < _classNames.length; i++) {
         if (scores[i] > 0.01) {
           print("   ${_classNames[i].padRight(10)}: "
@@ -169,12 +169,12 @@ class ImageModel {
       String label      = _classNames[predictedIndex];
       double confidence = scores[predictedIndex];
 
-      print("✅ Predicted: $label "
+      print("Predicted: $label "
           "(${(confidence * 100).toStringAsFixed(1)}%)");
       return label;
 
     } catch (e) {
-      print("❌ Prediction error: $e");
+      print("Prediction error: $e");
       return "Error";
     }
   }
@@ -203,7 +203,7 @@ class ImageModel {
       }).toList();
 
     } catch (e) {
-      print("❌ Prediction error: $e");
+      print("Prediction error: $e");
       return [];
     }
   }
