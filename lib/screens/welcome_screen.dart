@@ -1,3 +1,4 @@
+import 'package:dyscalculia_lesson_delivery_system/screens/teacher_dashboard_screen.dart';
 import 'package:flutter/material.dart';
 import 'lesson_screen.dart';
 
@@ -61,6 +62,34 @@ class WelcomeScreen extends StatelessWidget {
                         fontSize: 25,
                         fontWeight: FontWeight.bold,
                         color: Colors.white,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  ElevatedButton(
+                    onPressed: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => const TeacherDashboardScreen(),
+                      ),
+                    ),
+                    child: const Text(
+                      "Teacher View",
+                      style: TextStyle(
+                        fontSize: 28,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.purple,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 32,
+                        vertical: 18,
+                      ),
+                      minimumSize: const Size(200, 60),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(30),
                       ),
                     ),
                   ),

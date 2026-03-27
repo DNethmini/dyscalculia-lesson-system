@@ -17,7 +17,7 @@
     <!-- ================================================= -->
 
     <application
-        android:label="dyscalculia_lesson_delivery_system"
+        android:label="MathMinds"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
 
