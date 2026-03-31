@@ -59,7 +59,7 @@ class WelcomeScreen extends StatelessWidget {
                     child: const Text(
                       'Start Learning',
                       style: TextStyle(
-                        fontSize: 25,
+                        fontSize: 20,
                         fontWeight: FontWeight.bold,
                         color: Colors.white,
                       ),
@@ -76,7 +76,7 @@ class WelcomeScreen extends StatelessWidget {
                     child: const Text(
                       "Teacher View",
                       style: TextStyle(
-                        fontSize: 28,
+                        fontSize: 22,
                         fontWeight: FontWeight.bold,
                       ),
                     ),

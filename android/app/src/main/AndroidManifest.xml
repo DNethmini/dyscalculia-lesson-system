@@ -8,6 +8,7 @@
 
     <!-- Internet (ML / plugins / future API use) -->
     <uses-permission android:name="android.permission.INTERNET"/>
+    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO"/>
 
     <!-- Storage (Audio file saving – required on some devices) -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"/>

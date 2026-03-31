@@ -9,123 +9,241 @@ class SpeechModel {
   List<String> _labelNames = [];
   bool _isLoaded = false;
 
-  // ✅ MUST match Kaggle Cell 6 settings exactly
+  // ✅ FSDD dataset settings
+  // These MUST match Kaggle Cell 5
   static const int    sampleRate = 8000;
-  static const int    nMels      = 32;
+  static const int    nMels      = 40;
   static const int    nFft       = 512;
-  static const int    hopLength  = 256;
-  static const int    imgSize    = 32;
+  static const int    hopLength  = 160;
+  static const int    imgSize    = 40;
 
   Future<void> loadModel() async {
     try {
-      _interpreter = await Interpreter.fromAsset(
-        'assets/models/speech_cnn_model.tflite',
+      _interpreter =
+      await Interpreter.fromAsset(
+        'assets/models/'
+            'speech_cnn_model.tflite',
       );
       final j = await rootBundle.loadString(
         'assets/data/speech_labels.json',
       );
-      _labelNames = List<String>.from(jsonDecode(j));
-      _isLoaded   = true;
-      print("✅ Speech model: $_labelNames");
+      _labelNames =
+      List<String>.from(jsonDecode(j));
+      _isLoaded = true;
+
+      final inShape = _interpreter!
+          .getInputTensor(0).shape;
+      final outShape = _interpreter!
+          .getOutputTensor(0).shape;
+
+      print("✅ Speech model loaded");
+      print("   Labels: $_labelNames");
+      print("   Input:  $inShape");
+      print("   Output: $outShape");
     } catch (e) {
-      print("❌ Load: $e");
+      print("❌ Load error: $e");
     }
   }
 
   bool get isReady =>
       _isLoaded && _interpreter != null;
+  List<String> get labelNames =>
+      _labelNames;
 
   int? labelToNumber(String label) {
-    try { return int.parse(label); }
-    catch (_) { return null; }
+    try {
+      return int.parse(label);
+    } catch (_) {
+      return null;
+    }
   }
 
+  // ── Main predict ──────────────────────
   String predict(Uint8List wavBytes) {
     if (!isReady) return "-1";
+
     try {
-      final spec   = _pipeline(wavBytes);
-      final tensor = spec.reshape(
+      print("\n Processing audio...");
+      print("   File size: "
+          "${wavBytes.length} bytes");
+
+      final samples  = _parseWav(wavBytes);
+      final padded   = _padOrTrim(samples);
+      final frames   = _stft(padded);
+      final filters  = _melFilterbank();
+      final mel      =
+      _applyMel(frames, filters);
+      final db       = _toDb(mel);
+      final norm     = _normalize(db);
+      final resized  = _resize(norm);
+
+      final tensor = resized.reshape(
           [1, imgSize, imgSize, 1]);
-      final out = List.filled(
+      final output = List.filled(
         _labelNames.length, 0.0,
       ).reshape([1, _labelNames.length]);
 
-      _interpreter!.run(tensor, out);
+      _interpreter!.run(tensor, output);
 
-      final scores = List<double>.from(out[0]);
-      print("📊 Scores:");
+      final scores =
+      List<double>.from(output[0]);
+
+      print("\n📊 Scores:");
       for (int i = 0;
       i < _labelNames.length; i++) {
-        print("   ${_labelNames[i]}: "
-            "${(scores[i]*100).toStringAsFixed(1)}%");
+        final pct = scores[i] * 100;
+        final bar =
+            "█" * (pct / 5).toInt();
+        print("   ${_labelNames[i]
+            .padLeft(2)}: "
+            "${bar.padRight(22)} "
+            "${pct.toStringAsFixed(1)}%");
       }
 
-      final idx = scores.indexOf(
-          scores.reduce((a, b) => a > b ? a : b));
-      print("✅ → ${_labelNames[idx]} "
-          "(${(scores[idx]*100).toStringAsFixed(1)}%)");
-      return _labelNames[idx];
+      final maxIdx = scores.indexOf(
+        scores.reduce(
+                (a, b) => a > b ? a : b),
+      );
+      final label      = _labelNames[maxIdx];
+      final confidence = scores[maxIdx];
+
+      print("\n Predicted: $label "
+          "(${(confidence * 100)
+          .toStringAsFixed(1)}%)");
+      return label;
+
     } catch (e) {
-      print("❌ Predict: $e");
+      print("❌ Predict error: $e");
       return "-1";
     }
   }
 
-  // ── Full pipeline ─────────────────────────────
-  Float32List _pipeline(Uint8List wav) {
-    final s  = _parseWav(wav);
-    final p  = _padTrim(s);
-    final fr = _stft(p);
-    final mf = _melFilters();
-    final m  = _applyMel(fr, mf);
-    final db = _toDb(m);
-    final n  = _norm(db);
-    return _resize(n);
-  }
-
-  Float32List _parseWav(Uint8List b) {
+  // ── Parse WAV + Auto Resample ─────────
+  Float32List _parseWav(Uint8List bytes) {
     try {
-      int off = 44;
-      for (int i = 0; i < b.length - 4; i++) {
-        if (b[i]==0x64 && b[i+1]==0x61 &&
-            b[i+2]==0x74 && b[i+3]==0x61) {
-          off = i + 8; break;
+      int offset = 44;
+      for (int i = 0;
+      i < bytes.length - 4; i++) {
+        if (bytes[i] == 0x64 &&
+            bytes[i + 1] == 0x61 &&
+            bytes[i + 2] == 0x74 &&
+            bytes[i + 3] == 0x61) {
+          offset = i + 8;
+          break;
         }
       }
-      final n   = (b.length - off) ~/ 2;
-      final out = Float32List(n);
-      for (int i = 0; i < n; i++) {
-        final idx = off + i * 2;
-        if (idx + 1 >= b.length) break;
-        int s = (b[idx+1] << 8) | b[idx];
-        if (s > 32767) s -= 65536;
-        out[i] = s / 32768.0;
+
+      // Read sample rate from header
+      int wavSR = sampleRate;
+      if (bytes.length > 27) {
+        wavSR = bytes[24] |
+        (bytes[25] << 8) |
+        (bytes[26] << 16) |
+        (bytes[27] << 24);
       }
-      print("🎤 WAV: $n samples "
-          "(${(n/sampleRate).toStringAsFixed(2)}s)");
-      return out;
-    } catch (_) {
+
+      // Read channels
+      int channels = 1;
+      if (bytes.length > 23) {
+        channels = bytes[22] |
+        (bytes[23] << 8);
+      }
+
+      print("   WAV SR:   $wavSR Hz");
+      print("   Channels: $channels");
+
+      final numSamples =
+          (bytes.length - offset) ~/
+              (2 * channels);
+      final raw = Float32List(numSamples);
+
+      for (int i = 0;
+      i < numSamples; i++) {
+        final idx =
+            offset + i * 2 * channels;
+        if (idx + 1 >= bytes.length) break;
+        int s = (bytes[idx + 1] << 8) |
+        bytes[idx];
+        if (s > 32767) s -= 65536;
+        raw[i] = s / 32768.0;
+      }
+
+      print("   Raw: ${raw.length} "
+          "samples "
+          "(${(raw.length / wavSR)
+          .toStringAsFixed(3)}s)");
+
+      // Auto resample if needed
+      if (wavSR != sampleRate) {
+        print("   🔄 Resampling: "
+            "$wavSR→$sampleRate Hz");
+        final resampled =
+        _resample(raw, wavSR,
+            sampleRate);
+        print("   After: "
+            "${resampled.length} samples");
+        return resampled;
+      }
+
+      return raw;
+    } catch (e) {
+      print("⚠️ WAV error: $e");
       return Float32List(sampleRate);
     }
   }
 
-  Float32List _padTrim(Float32List s) {
-    final t   = sampleRate;
-    final out = Float32List(t);
-    final c   = s.length < t ? s.length : t;
-    for (int i = 0; i < c; i++) out[i] = s[i];
+  // ── Linear interpolation resample ────
+  Float32List _resample(
+      Float32List input,
+      int fromRate,
+      int toRate) {
+    if (fromRate == toRate) return input;
+
+    final ratio = fromRate / toRate;
+    final len   =
+    (input.length / ratio).ceil();
+    final out   = Float32List(len);
+
+    for (int i = 0; i < len; i++) {
+      final pos  = i * ratio;
+      final idx  = pos.floor();
+      final frac = pos - idx;
+
+      final s0 = idx < input.length
+          ? input[idx] : 0.0;
+      final s1 = idx + 1 < input.length
+          ? input[idx + 1] : 0.0;
+
+      out[i] = s0 + (s1 - s0) * frac;
+    }
     return out;
   }
 
+  // ── Pad or trim to 1 second ───────────
+  Float32List _padOrTrim(Float32List s) {
+    final target = sampleRate;
+    final out    = Float32List(target);
+    final copy   =
+    s.length < target
+        ? s.length : target;
+    for (int i = 0; i < copy; i++) {
+      out[i] = s[i];
+    }
+    return out;
+  }
+
+  // ── STFT ──────────────────────────────
   List<Float32List> _stft(Float32List s) {
-    final nF  = (s.length - nFft) ~/ hopLength + 1;
-    final nB  = nFft ~/ 2 + 1;
+    final nF =
+        (s.length - nFft) ~/ hopLength + 1;
+    final nB = nFft ~/ 2 + 1;
     final out = <Float32List>[];
 
     final win = Float32List(nFft);
     for (int i = 0; i < nFft; i++) {
       win[i] = 0.5 *
-          (1.0 - cos(2.0 * pi * i / (nFft - 1)));
+          (1.0 - cos(
+              2.0 * pi * i / (nFft - 1)));
     }
 
     for (int f = 0; f < nF; f++) {
@@ -136,10 +254,12 @@ class SpeechModel {
         wnd[i]    = idx < s.length
             ? s[idx] * win[i] : 0.0;
       }
+
       final pwr = Float32List(nB);
       for (int k = 0; k < nB; k++) {
         double re = 0.0, im = 0.0;
-        final a   = 2.0 * pi * k / nFft;
+        final a   =
+            2.0 * pi * k / nFft;
         for (int n = 0; n < nFft; n++) {
           re += wnd[n] * cos(a * n);
           im -= wnd[n] * sin(a * n);
@@ -151,114 +271,155 @@ class SpeechModel {
     return out;
   }
 
-  List<Float32List> _melFilters() {
+  // ── Mel filterbank ────────────────────
+  List<Float32List> _melFilterbank() {
     final nB = nFft ~/ 2 + 1;
-    double h2m(double h) =>
-        2595.0 * log(1.0 + h / 700.0) / ln10;
-    double m2h(double m) =>
-        700.0 * (pow(10.0, m / 2595.0) - 1.0);
 
-    final mn  = h2m(0.0);
-    final mx  = h2m(sampleRate / 2.0);
-    final stp = (mx - mn) / (nMels + 1);
+    double hzToMel(double h) =>
+        2595.0 *
+            log(1.0 + h / 700.0) / ln10;
+    double melToHz(double m) =>
+        700.0 *
+            (pow(10.0, m / 2595.0) - 1.0);
 
-    final ctr  = List<double>.generate(
-        nMels + 2, (i) => m2h(mn + i * stp));
-    final bins = ctr.map(
-            (f) => (f*(nFft+1)/sampleRate).floor()
+    final mMin =
+    hzToMel(0.0);
+    final mMax =
+    hzToMel(sampleRate / 2.0);
+    final mStep =
+        (mMax - mMin) / (nMels + 1);
+
+    final centers =
+    List<double>.generate(
+      nMels + 2,
+          (i) => melToHz(mMin + i * mStep),
+    );
+    final bins = centers.map(
+          (f) => (f * (nFft + 1) /
+          sampleRate)
+          .floor(),
     ).toList();
 
-    final f = List<Float32List>.generate(
-        nMels, (_) => Float32List(nB));
+    final filters =
+    List<Float32List>.generate(
+      nMels,
+          (_) => Float32List(nB),
+    );
 
     for (int m = 0; m < nMels; m++) {
       for (int k = 0; k < nB; k++) {
-        if (k >= bins[m] && k <= bins[m+1]) {
-          f[m][k] = (k - bins[m]) /
-              (bins[m+1] - bins[m] + 1e-10);
-        } else if (k > bins[m+1] &&
-            k <= bins[m+2]) {
-          f[m][k] = (bins[m+2] - k) /
-              (bins[m+2] - bins[m+1] + 1e-10);
+        if (k >= bins[m] &&
+            k <= bins[m + 1]) {
+          filters[m][k] =
+              (k - bins[m]) /
+                  (bins[m + 1] -
+                      bins[m] +
+                      1e-10);
+        } else if (k > bins[m + 1] &&
+            k <= bins[m + 2]) {
+          filters[m][k] =
+              (bins[m + 2] - k) /
+                  (bins[m + 2] -
+                      bins[m + 1] +
+                      1e-10);
         }
       }
     }
-    return f;
+    return filters;
   }
 
+  // ── Apply mel filters ─────────────────
   List<Float32List> _applyMel(
       List<Float32List> frames,
-      List<Float32List> filters,
-      ) {
-    return frames.map((fr) {
-      final m = Float32List(nMels);
-      for (int i = 0; i < nMels; i++) {
-        double s = 0.0;
-        for (int k = 0; k < fr.length; k++) {
-          s += filters[i][k] * fr[k];
+      List<Float32List> filters) {
+    return frames.map((frame) {
+      final mel = Float32List(nMels);
+      for (int m = 0; m < nMels; m++) {
+        double sum = 0.0;
+        for (int k = 0;
+        k < frame.length; k++) {
+          sum +=
+              filters[m][k] * frame[k];
         }
-        m[i] = s + 1e-10;
+        mel[m] = sum + 1e-10;
       }
-      return m;
+      return mel;
     }).toList();
   }
 
+  // ── Power to dB ───────────────────────
   List<Float32List> _toDb(
       List<Float32List> mel) {
-    double mx = 1e-10;
+    double maxVal = 1e-10;
     for (final f in mel) {
       for (final v in f) {
-        if (v > mx) mx = v;
+        if (v > maxVal) maxVal = v;
       }
     }
     return mel.map((f) {
       final d = Float32List(f.length);
-      for (int i = 0; i < f.length; i++) {
+      for (int i = 0;
+      i < f.length; i++) {
         d[i] = 10.0 *
-            log(f[i] / mx + 1e-10) / ln10;
+            log(f[i] / maxVal + 1e-10) /
+            ln10;
       }
       return d;
     }).toList();
   }
 
-  List<Float32List> _norm(
-      List<Float32List> s) {
-    double mn =  double.infinity;
-    double mx = -double.infinity;
-    for (final f in s) {
+  // ── Normalize [0, 1] ──────────────────
+  List<Float32List> _normalize(
+      List<Float32List> spec) {
+    double minVal =  double.infinity;
+    double maxVal = -double.infinity;
+    for (final f in spec) {
       for (final v in f) {
-        if (v < mn) mn = v;
-        if (v > mx) mx = v;
+        if (v < minVal) minVal = v;
+        if (v > maxVal) maxVal = v;
       }
     }
-    final r = mx - mn + 1e-10;
-    return s.map((f) {
+    final range = maxVal - minVal + 1e-10;
+    return spec.map((f) {
       final n = Float32List(f.length);
-      for (int i = 0; i < f.length; i++) {
-        n[i] = (f[i] - mn) / r;
+      for (int i = 0;
+      i < f.length; i++) {
+        n[i] = (f[i] - minVal) / range;
       }
       return n;
     }).toList();
   }
 
-  Float32List _resize(List<Float32List> s) {
-    final out = Float32List(imgSize * imgSize);
-    final sr  = s.length;
-    final sc  = s[0].length;
+  // ── Resize to imgSize × imgSize ───────
+  Float32List _resize(
+      List<Float32List> spec) {
+    final out =
+    Float32List(imgSize * imgSize);
+    final sr = spec.length;
+    final sc = spec[0].length;
+
     for (int r = 0; r < imgSize; r++) {
       for (int c = 0; c < imgSize; c++) {
-        final fr = r*(sr-1)/(imgSize-1);
-        final fc = c*(sc-1)/(imgSize-1);
-        final r0 = fr.floor().clamp(0,sr-1);
-        final r1 = (r0+1).clamp(0,sr-1);
-        final c0 = fc.floor().clamp(0,sc-1);
-        final c1 = (c0+1).clamp(0,sc-1);
-        final dr = fr-r0, dc = fc-c0;
-        out[r*imgSize+c] =
-            s[r0][c0]*(1-dr)*(1-dc)+
-                s[r1][c0]*dr*(1-dc)+
-                s[r0][c1]*(1-dr)*dc+
-                s[r1][c1]*dr*dc;
+        final fr =
+            r * (sr - 1) / (imgSize - 1);
+        final fc =
+            c * (sc - 1) / (imgSize - 1);
+        final r0 =
+        fr.floor().clamp(0, sr - 1);
+        final r1 =
+        (r0 + 1).clamp(0, sr - 1);
+        final c0 =
+        fc.floor().clamp(0, sc - 1);
+        final c1 =
+        (c0 + 1).clamp(0, sc - 1);
+        final dr = fr - r0;
+        final dc = fc - c0;
+
+        out[r * imgSize + c] =
+            spec[r0][c0] * (1-dr) * (1-dc)+
+                spec[r1][c0] * dr * (1-dc) +
+                spec[r0][c1] * (1-dr) * dc +
+                spec[r1][c1] * dr * dc;
       }
     }
     return out;
