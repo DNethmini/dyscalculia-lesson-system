@@ -23,7 +23,7 @@ class WelcomeScreen extends StatelessWidget {
             color: Colors.red.withOpacity(0.4),
           ),
 
-          // Foreground content — shifted up with bottom padding
+          // Foreground content
           Padding(
             padding: const EdgeInsets.only(bottom: 160),
             child: Center(

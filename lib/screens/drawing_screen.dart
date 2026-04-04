@@ -42,7 +42,7 @@ class _DrawingScreenState
             (_) => setState(() {}));
   }
 
-  // ── Generate task ─────────────────────────────
+  // Generate task
   Map<String, dynamic> _generateTask() {
     int a, b, answer;
     String question;
@@ -91,11 +91,11 @@ class _DrawingScreenState
     return labels[n] ?? "zero";
   }
 
-  // ── Predict ───────────────────────────────────
+  //Predict
   Future<void> _predict() async {
     if (!_model.isReady) {
       setState(() =>
-      _feedback = "⚠️ Model not loaded!");
+      _feedback = "Model not loaded!");
       return;
     }
     if (_points.isEmpty) {
@@ -186,7 +186,7 @@ class _DrawingScreenState
 
     } catch (e) {
       setState(() {
-        _feedback     = "❌ Error: $e";
+        _feedback     = "Error: $e";
         _isProcessing = false;
       });
     }
@@ -248,7 +248,7 @@ class _DrawingScreenState
       ),
       body: Column(children: [
 
-        // ── Question card ─────────────────────
+        //Question card
         Container(
           width: double.infinity,
           margin: const EdgeInsets.all(16),
@@ -285,7 +285,7 @@ class _DrawingScreenState
           ]),
         ),
 
-        // ── Hint widget ───────────────────────
+        // Hint widgets
         if (_showHint)
           HintWidget(
             number: answer,
@@ -293,7 +293,7 @@ class _DrawingScreenState
                 setState(() => _showHint = false),
           ),
 
-        // ── Drawing canvas ────────────────────
+        // Drawing canvas
         Expanded(child: Container(
           margin: const EdgeInsets.symmetric(
               horizontal: 16),
@@ -337,7 +337,7 @@ class _DrawingScreenState
           ),
         )),
 
-        // ── Predicted label ───────────────────
+        // Predicted label
         if (_predictedLabel != null)
           Padding(
             padding: const EdgeInsets.symmetric(
@@ -352,7 +352,7 @@ class _DrawingScreenState
             ),
           ),
 
-        // ── Feedback card ─────────────────────
+        // Feedback
         if (_feedback != null)
           Container(
             margin: const EdgeInsets.symmetric(
@@ -381,7 +381,7 @@ class _DrawingScreenState
             ),
           ),
 
-        // ── Buttons ───────────────────────────
+        //Buttons
         Padding(
           padding: const EdgeInsets.all(16),
           child: Row(children: [

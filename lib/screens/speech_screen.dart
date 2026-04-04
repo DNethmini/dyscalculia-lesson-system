@@ -26,49 +26,51 @@ class _SpeechScreenState
   final SpeechToText _stt    = SpeechToText();
   final Random       _random = Random();
 
-  // 0 = Speak live, 1 = Upload WAV
-  int _selectedMode = 0;
+  int _selectedMode = 0; // 0=Speak, 1=Upload
 
-  // Live speech
+  // Speech state
   bool   _sttReady    = false;
   bool   _isListening = false;
   String _liveText    = '';
+  String _lastWords   = ''; // tracks last heard words
   String _localeId    = 'en_US';
+  bool   _processed   = false; //prevents double processing
 
-  // Upload WAV
-  bool    _isProcessing    = false;
+  // Upload state
+  bool    _isUploading     = false;
   String? _selectedFileName;
 
-  // Shared
+  // Result state
   String? _predictedLabel;
   String? _feedback;
+  bool    _isCorrect     = false;
   int     _score         = 0;
   int     _totalAttempts = 0;
   bool    _showHint      = false;
   int     _wrongStreak   = 0;
 
-  late AnimationController  _anim;
-  late Animation<double>    _pulse;
+  late AnimationController _anim;
+  late Animation<double>   _pulse;
   late Map<String, dynamic> _task;
 
   static const Map<String, int> _wordMap = {
     'zero': 0,  'o': 0,
-    'one':  1,  'won': 1,   'wan': 1,
-    'two':  2,  'to':  2,   'too': 2,
-    'three':3,  'tree': 3,  'free': 3,
-    'four': 4,  'for':  4,  'fore': 4,
-    'five': 5,  'hive': 5,
-    'six':  6,  'sicks': 6,
-    'seven':7,  'sevan': 7,
-    'eight':8,  'ate':  8,  'ait': 8,
-    'nine': 9,  'nein': 9,  'nain': 9,
+    'one':  1,  'won': 1,  'wan': 1,
+    'two':  2,  'to':  2,  'too': 2,
+    'three':3,  'tree':3,  'free':3,
+    'four': 4,  'for': 4,  'fore':4,
+    'five': 5,  'hive':5,
+    'six':  6,  'sicks':6,
+    'seven':7,  'sevan':7,
+    'eight':8,  'ate': 8,  'ait': 8,
+    'nine': 9,  'nein':9,  'nain':9,
   };
 
   static const Map<int, String> _numWord = {
-    0: 'zero',  1: 'one',   2: 'two',
-    3: 'three', 4: 'four',  5: 'five',
-    6: 'six',   7: 'seven', 8: 'eight',
-    9: 'nine',
+    0:'zero', 1:'one',   2:'two',
+    3:'three',4:'four',  5:'five',
+    6:'six',  7:'seven', 8:'eight',
+    9:'nine',
   };
 
   @override
@@ -101,44 +103,73 @@ class _SpeechScreenState
     super.dispose();
   }
 
-  // ── Init STT ──────────────────────────
+  // Init STT
   Future<void> _initSTT() async {
     try {
       _sttReady = await _stt.initialize(
         onError: (e) {
-          print("STT: ${e.errorMsg}");
-          setState(
-                  () => _isListening = false);
+          print("STT error: ${e.errorMsg}");
+          //On error, process whatever was heard
+          if (mounted && _lastWords.isNotEmpty
+              && !_processed) {
+            _processText(_lastWords);
+          } else if (mounted) {
+            setState(() => _isListening = false);
+          }
         },
-        onStatus: (s) {
-          setState(() {
-            _isListening = s == 'listening';
-          });
+        onStatus: (status) {
+          print("STT status: $status");
+          if (!mounted) return;
+
+          // process the last heard words
+          if (status == 'done' ||
+              status == 'notListening' ||
+              status == 'doneNoResult') {
+            if (_lastWords.isNotEmpty &&
+                !_processed) {
+              _processText(_lastWords);
+            } else if (!_processed) {
+              setState(() {
+                _isListening = false;
+                if (_lastWords.isEmpty &&
+                    _feedback == null) {
+                  _feedback =
+                  "Nothing heard!\n"
+                      "Tap mic and speak clearly.";
+                }
+              });
+            }
+          } else {
+            setState(() {
+              _isListening = status == 'listening';
+            });
+          }
         },
       );
+
       if (_sttReady) {
-        final locales =
-        await _stt.locales();
+        final locales = await _stt.locales();
         final eng = locales.firstWhere(
-              (l) => l.localeId
-              .startsWith('en'),
+              (l) => l.localeId.startsWith('en'),
           orElse: () => locales.first,
         );
         _localeId = eng.localeId;
-        print("✅ STT: $_localeId");
+        print("STT: $_localeId");
+      } else {
+        print("STT not available");
       }
-      setState(() {});
+
+      if (mounted) setState(() {});
     } catch (e) {
-      print("STT init: $e");
+      print("STT init error: $e");
     }
   }
 
-  // ── Generate task ──────────────────────
+  //Generate task
   Map<String, dynamic> _genTask() {
     int a, b, ans;
     String q;
-    final t = _random.nextInt(4);
-    switch (t) {
+    switch (_random.nextInt(4)) {
       case 0:
         a = _random.nextInt(5);
         b = _random.nextInt(10 - a);
@@ -166,68 +197,114 @@ class _SpeechScreenState
     return {"question": q, "answer": ans};
   }
 
-  // ── Live speech methods ────────────────
+  // LIVE SPEECH
+
   Future<void> _startListening() async {
     if (!_sttReady || _isListening) return;
+
+    // Reset state
     setState(() {
       _isListening    = true;
       _liveText       = '';
+      _lastWords      = '';      // clear last words
+      _processed      = false;   // allow processing
       _predictedLabel = null;
       _feedback       = null;
+      _isCorrect      = false;
     });
+
     try {
       await _stt.listen(
-        onResult:       _onResult,
-        localeId:       _localeId,
+        onResult: _onResult,
+        localeId: _localeId,
         listenFor:
         const Duration(seconds: 10),
         pauseFor:
-        const Duration(seconds: 4),
+        const Duration(seconds: 3),
         partialResults: true,
         cancelOnError:  false,
+        listenMode:
+        ListenMode.confirmation,
       );
     } catch (e) {
-      setState(() => _isListening = false);
+      print("Listen error: $e");
+      if (mounted) {
+        setState(() {
+          _isListening = false;
+          _feedback    = "Mic error: $e";
+        });
+      }
     }
   }
 
   Future<void> _stopListening() async {
-    if (!_isListening) return;
-    await _stt.stop();
-    setState(() => _isListening = false);
-  }
-
-  void _onResult(
-      SpeechRecognitionResult r) {
-    setState(
-            () => _liveText = r.recognizedWords);
-    if (r.finalResult) {
-      _processText(r.recognizedWords);
+    try {
+      await _stt.stop();
+    } catch (e) {
+      print("Stop error: $e");
+    }
+    //After manual stop, process last words
+    if (mounted && _lastWords.isNotEmpty
+        && !_processed) {
+      _processText(_lastWords);
+    } else if (mounted) {
+      setState(() => _isListening = false);
     }
   }
 
-  void _processText(String text) async {
+  // always store partial results
+  void _onResult(SpeechRecognitionResult r) {
+    final words = r.recognizedWords.trim();
+    print("Result: '$words' "
+        "final=${r.finalResult}");
+
+    if (words.isNotEmpty) {
+      // Always update live text
+      if (mounted) {
+        setState(() => _liveText = words);
+      }
+      // Always store latest words
+      _lastWords = words;
+    }
+
+    //Process immediately on final result
+    if (r.finalResult && !_processed) {
+      _processText(words.isNotEmpty
+          ? words : _lastWords);
+    }
+  }
+
+  // Process spoken text
+  void _processText(String text) {
+    if (_processed) return;   // prevent double call
+    _processed = true;
+
+    print("Processing: '$text'");
+
     if (text.trim().isEmpty) {
-      setState(() {
-        _feedback =
-        "Nothing heard!\nTry again.";
-        _isListening = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isListening = false;
+          _feedback =
+          "Nothing heard!\n"
+              "Tap mic and speak clearly.";
+          _isCorrect = false;
+        });
+      }
       return;
     }
 
-    final lower =
-    text.toLowerCase().trim();
-    final words =
-    lower.split(RegExp(r'\s+'));
-    final exp = _task["answer"] as int;
+    final lower = text.toLowerCase().trim();
+    final words = lower.split(RegExp(r'\s+'));
+    final exp   = _task["answer"] as int;
 
-    int? found; String? foundWord;
+    int?    found;
+    String? foundWord;
 
+    // Check word by word
     for (final w in words) {
       final n = int.tryParse(w);
-      if (n != null &&
-          n >= 0 && n <= 9) {
+      if (n != null && n >= 0 && n <= 9) {
         found = n; foundWord = w; break;
       }
       if (_wordMap.containsKey(w)) {
@@ -235,13 +312,18 @@ class _SpeechScreenState
         foundWord = w; break;
       }
     }
+
+    // Substring fallback
     if (found == null) {
       _wordMap.forEach((w, n) {
-        if (lower.contains(w)) {
+        if (found == null &&
+            lower.contains(w)) {
           found = n; foundWord = w;
         }
       });
     }
+
+    print("Found: $found, Expected: $exp");
 
     _totalAttempts++;
     final bool ok =
@@ -250,42 +332,55 @@ class _SpeechScreenState
     if (ok) {
       _score++;
       _wrongStreak = 0;
-      setState(() => _showHint = false);
     } else {
       _wrongStreak++;
-      if (_wrongStreak >= 2) {
+      if (_wrongStreak >= 2 && mounted) {
         setState(() => _showHint = true);
       }
     }
 
-    await ProgressService.saveSpeechAttempt(
+    // Save async
+    ProgressService.saveSpeechAttempt(
       isCorrect: ok,
       question:  _task["question"],
       answer:    exp,
       spoken:    foundWord ?? text,
-    );
+    ).catchError((e) =>
+        print("Save error: $e"));
 
-    setState(() {
-      _predictedLabel = foundWord ?? text;
-      _feedback = ok
-          ? "Correct!\n"
-          "${_task["question"]} = $exp"
-          : found != null
-          ? "❌ Try again!\n"
+    // Build feedback
+    String fb;
+    if (ok) {
+      fb = "Correct!\n"
+          "${_task["question"]} = $exp "
+          "(${_numWord[exp]})";
+    } else if (found != null) {
+      fb = "Try again!\n"
           "Answer: $exp "
           "(${_numWord[exp]})\n"
-          "You said: $found"
-          : "⚠️ Not recognized!\n"
-          "Say \"${_numWord[exp]}\" "
-          "clearly.";
-      _isListening = false;
-    });
+          "You said: $found "
+          "(${_numWord[found] ?? ''})";
+    } else {
+      fb = "Not recognised!\n"
+          "Say \"${_numWord[exp]}\" clearly.\n"
+          "I heard: \"$text\"";
+    }
+
+    if (mounted) {
+      setState(() {
+        _predictedLabel = foundWord ?? text;
+        _feedback       = fb;
+        _isCorrect      = ok;
+        _isListening    = false;
+        if (ok) _showHint = false;
+      });
+    }
   }
 
-  // ── Upload WAV methods ─────────────────
+  // UPLOAD WAV
   Future<void> _pickAndPredict() async {
     if (!_model.isReady) {
-      _snack("⚠️ Model still loading...");
+      _snack("Model still loading...");
       return;
     }
 
@@ -293,42 +388,36 @@ class _SpeechScreenState
       String? initDir;
 
       if (Platform.isAndroid) {
-        final paths = [
+        for (final p in [
           '/storage/emulated/0/Music',
           '/storage/emulated/0/Download',
           '/sdcard/Music',
-        ];
-        for (final p in paths) {
+        ]) {
           if (Directory(p).existsSync()) {
             initDir = p; break;
           }
         }
       } else if (Platform.isWindows) {
-        final home = Platform
-            .environment['USERPROFILE']
-            ?? 'C:\\Users';
-        final paths = [
+        final home =
+            Platform.environment[
+            'USERPROFILE'] ??
+                'C:\\Users';
+        for (final p in [
           '$home\\Music',
           '$home\\Downloads',
-          'C:\\Users\\Public\\Music',
-        ];
-        for (final p in paths) {
+        ]) {
           if (Directory(p).existsSync()) {
             initDir = p; break;
           }
         }
       }
 
-      print("📂 Opening: $initDir");
-
-      final result =
-      await FilePicker.platform
-          .pickFiles(
+      final result = await FilePicker
+          .platform.pickFiles(
         type: FileType.custom,
-        allowedExtensions: [
-          'wav', 'WAV'],
-        allowMultiple: false,
-        initialDirectory: initDir,
+        allowedExtensions: ['wav','WAV'],
+        allowMultiple:     false,
+        initialDirectory:  initDir,
       );
 
       if (result == null ||
@@ -336,26 +425,32 @@ class _SpeechScreenState
 
       final picked = result.files.first;
       if (picked.path == null) {
-        _snack("❌ Cannot access file");
+        _snack("Cannot access file");
         return;
       }
 
-      setState(() {
-        _isProcessing     = true;
-        _selectedFileName = picked.name;
-        _predictedLabel   = null;
-        _feedback         = null;
-      });
+      if (mounted) {
+        setState(() {
+          _isUploading      = true;
+          _selectedFileName = picked.name;
+          _predictedLabel   = null;
+          _feedback         = null;
+          _isCorrect        = false;
+        });
+      }
 
       final bytes = await File(
           picked.path!).readAsBytes();
       await _processWav(bytes);
 
     } catch (e) {
-      setState(() {
-        _isProcessing = false;
-        _feedback     = "❌ Error: $e";
-      });
+      print("Picker error: $e");
+      if (mounted) {
+        setState(() {
+          _isUploading = false;
+          _feedback    = "Error: $e";
+        });
+      }
     }
   }
 
@@ -375,82 +470,103 @@ class _SpeechScreenState
       if (ok) {
         _score++;
         _wrongStreak = 0;
-        setState(() => _showHint = false);
       } else {
         _wrongStreak++;
-        if (_wrongStreak >= 2) {
-          setState(
-                  () => _showHint = true);
+        if (_wrongStreak >= 2 && mounted) {
+          setState(() => _showHint = true);
         }
       }
 
-      await ProgressService.saveSpeechAttempt(
+      ProgressService.saveSpeechAttempt(
         isCorrect: ok,
         question:  _task["question"],
         answer:    exp,
         spoken:    label,
-      );
+      ).catchError((e) => print(e));
 
-      setState(() {
-        _predictedLabel = label;
-        _feedback = ok
-            ? "✅ Correct!\n"
-            "${_task["question"]} = $exp"
-            : number != null
-            ? "❌ Try again!\n"
+      String fb;
+      if (ok) {
+        fb = "✅ Correct!\n"
+            "${_task["question"]} = $exp "
+            "(${_numWord[exp]})";
+      } else if (number != null) {
+        fb = "❌ Try again!\n"
             "Answer: $exp "
             "(${_numWord[exp]})\n"
             "Model heard: $number "
-            "(${_numWord[number] ?? label})"
-            : "⚠️ Could not recognise!\n"
+            "(${_numWord[number] ?? label})";
+      } else {
+        fb = "⚠️ Could not recognise!\n"
             "Answer: $exp "
             "(${_numWord[exp]})\n"
-            "Use 8000Hz WAV file";
-        _isProcessing = false;
-      });
+            "Use an 8000Hz WAV file";
+      }
+
+      if (mounted) {
+        setState(() {
+          _predictedLabel = label;
+          _feedback       = fb;
+          _isCorrect      = ok;
+          _isUploading    = false;
+          if (ok) _showHint = false;
+        });
+      }
     } catch (e) {
-      setState(() {
-        _feedback     = "❌ Error: $e";
-        _isProcessing = false;
-      });
+      print("WAV error: $e");
+      if (mounted) {
+        setState(() {
+          _feedback    = "❌ Error: $e";
+          _isUploading = false;
+        });
+      }
     }
   }
 
   void _snack(String msg) {
     ScaffoldMessenger.of(context)
         .showSnackBar(SnackBar(
-      content: Text(msg),
-      duration:
-      const Duration(seconds: 2),
+      content:  Text(msg),
+      duration: const Duration(seconds: 2),
     ));
   }
 
-  void _next() => setState(() {
-    _task             = _genTask();
-    _predictedLabel   = null;
-    _feedback         = null;
-    _selectedFileName = null;
-    _liveText         = '';
-    _wrongStreak      = 0;
-    _showHint         = false;
-    _isProcessing     = false;
-  });
+  void _next() {
+    _stt.stop().catchError((_) {});
+    if (mounted) setState(() {
+      _task             = _genTask();
+      _predictedLabel   = null;
+      _feedback         = null;
+      _selectedFileName = null;
+      _liveText         = '';
+      _lastWords        = '';
+      _wrongStreak      = 0;
+      _showHint         = false;
+      _isUploading      = false;
+      _isListening      = false;
+      _isCorrect        = false;
+      _processed        = false;
+    });
+  }
 
-  void _retry() => setState(() {
-    _predictedLabel   = null;
-    _feedback         = null;
-    _selectedFileName = null;
-    _liveText         = '';
-    _isProcessing     = false;
-  });
+  void _retry() {
+    _stt.stop().catchError((_) {});
+    if (mounted) setState(() {
+      _predictedLabel   = null;
+      _feedback         = null;
+      _selectedFileName = null;
+      _liveText         = '';
+      _lastWords        = '';
+      _isUploading      = false;
+      _isListening      = false;
+      _isCorrect        = false;
+      _processed        = false;
+    });
+  }
 
-  // ══════════════════════════════════════
   // BUILD
-  // ══════════════════════════════════════
   @override
   Widget build(BuildContext context) {
-    final int ans =
-    _task["answer"] as int;
+    final int ans = _task["answer"] as int;
 
     return Scaffold(
       backgroundColor:
@@ -458,33 +574,27 @@ class _SpeechScreenState
       appBar: AppBar(
         title: const Text(
             "Speech Practice"),
-        backgroundColor:
-        Colors.deepPurple,
+        backgroundColor: Colors.deepPurple,
         foregroundColor: Colors.white,
         actions: [
           IconButton(
             icon: const Icon(
                 Icons.bar_chart_rounded),
             onPressed: () =>
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) =>
-                    const SpeechProgressScreen(),
-                  ),
-                ),
+                Navigator.push(context,
+                    MaterialPageRoute(
+                      builder: (_) =>
+                      const SpeechProgressScreen(),
+                    )),
           ),
           Padding(
-            padding:
-            const EdgeInsets.only(
+            padding: const EdgeInsets.only(
                 right: 12),
             child: Center(child: Text(
-              "Score: "
-                  "$_score/$_totalAttempts",
+              "Score: $_score/$_totalAttempts",
               style: const TextStyle(
                 fontSize: 15,
-                fontWeight:
-                FontWeight.bold,
+                fontWeight: FontWeight.bold,
                 color: Colors.white,
               ),
             )),
@@ -496,11 +606,10 @@ class _SpeechScreenState
             bottom: 24),
         child: Column(children: [
 
-          // ── Question ──────────────────
+          //Question
           Container(
             width: double.infinity,
-            margin:
-            const EdgeInsets.all(16),
+            margin: const EdgeInsets.all(16),
             padding:
             const EdgeInsets.symmetric(
                 vertical: 20,
@@ -538,7 +647,7 @@ class _SpeechScreenState
             ]),
           ),
 
-          // ── Hint ──────────────────────
+          //Hint
           if (_showHint)
             HintWidget(
               number: ans,
@@ -548,7 +657,7 @@ class _SpeechScreenState
 
           const SizedBox(height: 8),
 
-          // ── Mode toggle ───────────────
+          // Mode toggle
           Padding(
             padding:
             const EdgeInsets.symmetric(
@@ -557,8 +666,7 @@ class _SpeechScreenState
               decoration: BoxDecoration(
                 color: Colors.white,
                 borderRadius:
-                BorderRadius.circular(
-                    16),
+                BorderRadius.circular(16),
                 boxShadow: [BoxShadow(
                   color: Colors.black
                       .withOpacity(.06),
@@ -567,79 +675,70 @@ class _SpeechScreenState
               ),
               child: Row(children: [
 
-                // Speak tab
                 Expanded(child:
                 GestureDetector(
-                  onTap: () => setState(() {
-                    _selectedMode = 0;
-                    _retry();
-                  }),
+                  onTap: () {
+                    if (_selectedMode != 0) {
+                      setState(() {
+                        _selectedMode = 0;
+                        _retry();
+                      });
+                    }
+                  },
                   child: Container(
                     padding:
                     const EdgeInsets
                         .symmetric(
-                        vertical:
-                        14),
+                        vertical: 14),
                     decoration: BoxDecoration(
-                      color:
-                      _selectedMode == 0
-                          ? Colors
-                          .deepPurple
-                          : Colors
-                          .transparent,
+                      color: _selectedMode == 0
+                          ? Colors.deepPurple
+                          : Colors.transparent,
                       borderRadius:
                       BorderRadius
                           .circular(16),
                     ),
                     child: Column(children: [
-                      Icon(
-                          Icons.mic_rounded,
+                      Icon(Icons.mic_rounded,
                           color:
                           _selectedMode == 0
                               ? Colors.white
-                              : Colors
-                              .deepPurple,
+                              : Colors.deepPurple,
                           size: 26),
-                      const SizedBox(
-                          height: 4),
+                      const SizedBox(height: 4),
                       Text("Speak",
                           style: TextStyle(
                             fontSize: 13,
                             fontWeight:
-                            FontWeight
-                                .bold,
+                            FontWeight.bold,
                             color:
-                            _selectedMode ==
-                                0
-                                ? Colors
-                                .white
-                                : Colors
-                                .deepPurple,
+                            _selectedMode == 0
+                                ? Colors.white
+                                : Colors.deepPurple,
                           )),
                     ]),
                   ),
                 )),
 
-                // Upload tab
                 Expanded(child:
                 GestureDetector(
-                  onTap: () => setState(() {
-                    _selectedMode = 1;
-                    _retry();
-                  }),
+                  onTap: () {
+                    if (_selectedMode != 1) {
+                      setState(() {
+                        _selectedMode = 1;
+                        _retry();
+                      });
+                    }
+                  },
                   child: Container(
                     padding:
                     const EdgeInsets
                         .symmetric(
-                        vertical:
-                        14),
+                        vertical: 14),
                     decoration: BoxDecoration(
-                      color:
-                      _selectedMode == 1
-                          ? Colors
-                          .deepPurple
-                          : Colors
-                          .transparent,
+                      color: _selectedMode == 1
+                          ? Colors.deepPurple
+                          : Colors.transparent,
                       borderRadius:
                       BorderRadius
                           .circular(16),
@@ -651,35 +750,30 @@ class _SpeechScreenState
                           color:
                           _selectedMode == 1
                               ? Colors.white
-                              : Colors
-                              .deepPurple,
+                              : Colors.deepPurple,
                           size: 26),
-                      const SizedBox(
-                          height: 4),
+                      const SizedBox(height: 4),
                       Text("Upload WAV",
                           style: TextStyle(
                             fontSize: 13,
                             fontWeight:
-                            FontWeight
-                                .bold,
+                            FontWeight.bold,
                             color:
-                            _selectedMode ==
-                                1
-                                ? Colors
-                                .white
-                                : Colors
-                                .deepPurple,
+                            _selectedMode == 1
+                                ? Colors.white
+                                : Colors.deepPurple,
                           )),
                     ]),
                   ),
                 )),
+
               ]),
             ),
           ),
 
           const SizedBox(height: 16),
 
-          // ── Mode content ──────────────
+          // Mode content
           if (_selectedMode == 0)
             _buildSpeakUI()
           else
@@ -687,7 +781,7 @@ class _SpeechScreenState
 
           const SizedBox(height: 12),
 
-          // ── Live text ─────────────────
+          //Live text
           if (_selectedMode == 0 &&
               _liveText.isNotEmpty)
             Container(
@@ -696,12 +790,14 @@ class _SpeechScreenState
                   horizontal: 16,
                   vertical: 4),
               padding:
-              const EdgeInsets.all(10),
+              const EdgeInsets.all(12),
               decoration: BoxDecoration(
                 color: Colors.blue.shade50,
                 borderRadius:
-                BorderRadius.circular(
-                    10),
+                BorderRadius.circular(10),
+                border: Border.all(
+                    color:
+                    Colors.blue.shade200),
               ),
               child: Row(children: [
                 Icon(Icons.hearing,
@@ -710,11 +806,10 @@ class _SpeechScreenState
                     size: 18),
                 const SizedBox(width: 8),
                 Expanded(child: Text(
-                  _liveText,
+                  "Heard: \"$_liveText\"",
                   style: TextStyle(
-                    fontSize: 16,
-                    color:
-                    Colors.blue.shade800,
+                    fontSize: 15,
+                    color: Colors.blue.shade800,
                     fontWeight:
                     FontWeight.w500,
                   ),
@@ -722,7 +817,7 @@ class _SpeechScreenState
               ]),
             ),
 
-          // ── File info ─────────────────
+          // File info
           if (_selectedMode == 1 &&
               _selectedFileName != null)
             Container(
@@ -735,17 +830,14 @@ class _SpeechScreenState
               decoration: BoxDecoration(
                 color: Colors.grey.shade100,
                 borderRadius:
-                BorderRadius.circular(
-                    12),
+                BorderRadius.circular(12),
                 border: Border.all(
                     color:
                     Colors.grey.shade300),
               ),
               child: Row(children: [
-                const Icon(
-                    Icons.audio_file,
-                    color:
-                    Colors.deepPurple,
+                const Icon(Icons.audio_file,
+                    color: Colors.deepPurple,
                     size: 24),
                 const SizedBox(width: 8),
                 Expanded(child: Text(
@@ -754,8 +846,7 @@ class _SpeechScreenState
                     fontSize: 13,
                     fontWeight:
                     FontWeight.w500,
-                    color:
-                    Colors.deepPurple,
+                    color: Colors.deepPurple,
                   ),
                   overflow:
                   TextOverflow.ellipsis,
@@ -765,20 +856,19 @@ class _SpeechScreenState
                     padding:
                     const EdgeInsets
                         .symmetric(
-                        horizontal:
-                        8,
+                        horizontal: 8,
                         vertical: 4),
                     decoration: BoxDecoration(
-                      color:
-                      Colors.deepPurple,
+                      color: _isCorrect
+                          ? Colors.green
+                          : Colors.orange,
                       borderRadius:
                       BorderRadius
                           .circular(20),
                     ),
                     child: Text(
                       "→ $_predictedLabel",
-                      style:
-                      const TextStyle(
+                      style: const TextStyle(
                         color: Colors.white,
                         fontWeight:
                         FontWeight.bold,
@@ -789,21 +879,25 @@ class _SpeechScreenState
               ]),
             ),
 
-          // ── Prediction result ─────────
+          // Result card
           if (_predictedLabel != null &&
-              !_isProcessing)
+              !_isUploading)
             Container(
               margin:
               const EdgeInsets.symmetric(
                   horizontal: 16,
                   vertical: 6),
               padding:
-              const EdgeInsets.all(14),
+              const EdgeInsets.all(16),
               decoration: BoxDecoration(
                 color: Colors.white,
                 borderRadius:
-                BorderRadius.circular(
-                    14),
+                BorderRadius.circular(14),
+                border: Border.all(
+                  color: _isCorrect
+                      ? Colors.green.shade300
+                      : Colors.orange.shade300,
+                ),
                 boxShadow: [BoxShadow(
                   color: Colors.black
                       .withOpacity(.05),
@@ -812,14 +906,10 @@ class _SpeechScreenState
               ),
               child: Row(children: [
                 Container(
-                  width: 52, height: 52,
+                  width: 56, height: 56,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    color: _feedback !=
-                        null &&
-                        _feedback!
-                            .contains(
-                            "✅")
+                    color: _isCorrect
                         ? Colors.green
                         : Colors.orange,
                   ),
@@ -827,65 +917,75 @@ class _SpeechScreenState
                     _predictedLabel!,
                     style: const TextStyle(
                       color: Colors.white,
-                      fontSize: 20,
+                      fontSize: 18,
                       fontWeight:
                       FontWeight.bold,
                     ),
                   )),
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: 14),
                 Expanded(child: Column(
                   crossAxisAlignment:
-                  CrossAxisAlignment
-                      .start,
+                  CrossAxisAlignment.start,
                   children: [
                     Row(children: [
-                      const Text(
-                          "You said: ",
-                          style: TextStyle(
-                              fontSize: 13,
-                              color:
-                              Colors
-                                  .grey)),
                       Text(
+                        _selectedMode == 0
+                            ? "You said: "
+                            : "Model heard: ",
+                        style: const TextStyle(
+                          fontSize: 13,
+                          color: Colors.grey,
+                        ),
+                      ),
+                      Flexible(child: Text(
                         _numWord[int.tryParse(
                             _predictedLabel!)
                             ?? -1] ??
                             _predictedLabel!,
-                        style:
-                        const TextStyle(
+                        style: const TextStyle(
                           fontSize: 16,
                           fontWeight:
                           FontWeight.bold,
                         ),
-                      ),
+                      )),
                     ]),
+                    const SizedBox(height: 4),
                     Row(children: [
                       const Text(
-                          "Expected: ",
-                          style: TextStyle(
-                              fontSize: 13,
-                              color:
-                              Colors
-                                  .grey)),
+                        "Expected: ",
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: Colors.grey,
+                        ),
+                      ),
                       Text(
-                        _numWord[_task[
-                        "answer"]
-                        as int] ??
-                            '',
+                        "${_numWord[ans] ?? ''} ($ans)",
                         style: TextStyle(
                           fontSize: 15,
-                          color: Colors
-                              .grey.shade700,
+                          fontWeight:
+                          FontWeight.w600,
+                          color: _isCorrect
+                              ? Colors.green.shade700
+                              : Colors.grey.shade700,
                         ),
                       ),
                     ]),
                   ],
                 )),
+                Icon(
+                  _isCorrect
+                      ? Icons.check_circle
+                      : Icons.cancel,
+                  color: _isCorrect
+                      ? Colors.green
+                      : Colors.orange,
+                  size: 30,
+                ),
               ]),
             ),
 
-          // ── Feedback ──────────────────
+          // Feedback card
           if (_feedback != null)
             Container(
               margin:
@@ -895,28 +995,17 @@ class _SpeechScreenState
               padding:
               const EdgeInsets.all(14),
               decoration: BoxDecoration(
-                color:
-                _feedback!.contains("✅")
-                    ? Colors
-                    .green.shade50
-                    : _feedback!
-                    .contains(
-                    "⚠️")
-                    ? Colors
-                    .orange.shade50
-                    : Colors
-                    .red.shade50,
+                color: _isCorrect
+                    ? Colors.green.shade50
+                    : _feedback!.contains("⚠️")
+                    ? Colors.orange.shade50
+                    : Colors.red.shade50,
                 borderRadius:
-                BorderRadius.circular(
-                    12),
+                BorderRadius.circular(12),
                 border: Border.all(
-                  color:
-                  _feedback!.contains(
-                      "✅")
+                  color: _isCorrect
                       ? Colors.green
-                      : _feedback!
-                      .contains(
-                      "⚠️")
+                      : _feedback!.contains("⚠️")
                       ? Colors.orange
                       : Colors.red,
                 ),
@@ -926,27 +1015,19 @@ class _SpeechScreenState
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   fontSize: 15,
-                  fontWeight:
-                  FontWeight.bold,
-                  color:
-                  _feedback!.contains(
-                      "✅")
-                      ? Colors
-                      .green.shade800
-                      : _feedback!
-                      .contains(
-                      "⚠️")
-                      ? Colors.orange
-                      .shade800
-                      : Colors
-                      .red.shade800,
+                  fontWeight: FontWeight.bold,
+                  color: _isCorrect
+                      ? Colors.green.shade800
+                      : _feedback!.contains("⚠️")
+                      ? Colors.orange.shade800
+                      : Colors.red.shade800,
                 ),
               ),
             ),
 
           const SizedBox(height: 12),
 
-          // ── Buttons ───────────────────
+          // Buttons
           Padding(
             padding:
             const EdgeInsets.symmetric(
@@ -954,11 +1035,9 @@ class _SpeechScreenState
             child: Row(children: [
               Expanded(child:
               OutlinedButton.icon(
-                onPressed:
-                _isProcessing ||
+                onPressed: _isUploading ||
                     _isListening
-                    ? null
-                    : _retry,
+                    ? null : _retry,
                 icon: const Icon(
                     Icons.refresh),
                 label: const Text(
@@ -977,8 +1056,8 @@ class _SpeechScreenState
                   shape:
                   RoundedRectangleBorder(
                     borderRadius:
-                    BorderRadius.circular(
-                        12),
+                    BorderRadius
+                        .circular(12),
                   ),
                 ),
               )),
@@ -986,18 +1065,15 @@ class _SpeechScreenState
               Expanded(
                 flex: 2,
                 child: ElevatedButton.icon(
-                  onPressed:
-                  _isProcessing ||
+                  onPressed: _isUploading ||
                       _isListening
-                      ? null
-                      : _next,
+                      ? null : _next,
                   icon: const Icon(
                       Icons.arrow_forward),
                   label:
                   const Text("Next"),
                   style:
-                  ElevatedButton
-                      .styleFrom(
+                  ElevatedButton.styleFrom(
                     backgroundColor:
                     Colors.green,
                     foregroundColor:
@@ -1005,8 +1081,7 @@ class _SpeechScreenState
                     padding:
                     const EdgeInsets
                         .symmetric(
-                        vertical:
-                        14),
+                        vertical: 14),
                     shape:
                     RoundedRectangleBorder(
                       borderRadius:
@@ -1023,16 +1098,15 @@ class _SpeechScreenState
     );
   }
 
-  // ── Speak UI ───────────────────────────
+
+  // SPEAK UI
   Widget _buildSpeakUI() {
     return Padding(
-      padding:
-      const EdgeInsets.symmetric(
+      padding: const EdgeInsets.symmetric(
           horizontal: 16),
       child: Container(
         width: double.infinity,
-        padding:
-        const EdgeInsets.all(24),
+        padding: const EdgeInsets.all(24),
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius:
@@ -1045,14 +1119,18 @@ class _SpeechScreenState
         ),
         child: Column(children: [
 
+          // Status
           Text(
             !_sttReady
-                ? "Speech not available"
+                ? "🎤 Speech not available"
                 : _isListening
-                ? "🔴 Listening..."
+                ? "🔴 Listening... speak now!"
+                : _feedback != null
+                ? "Done!"
                 : "Tap mic to speak",
+            textAlign: TextAlign.center,
             style: TextStyle(
-              fontSize: 14,
+              fontSize: 15,
               color: _isListening
                   ? Colors.red
                   : Colors.grey.shade600,
@@ -1064,6 +1142,7 @@ class _SpeechScreenState
 
           const SizedBox(height: 20),
 
+          // Mic button
           AnimatedBuilder(
             animation: _pulse,
             builder: (ctx, _) =>
@@ -1071,22 +1150,26 @@ class _SpeechScreenState
                   scale: _isListening
                       ? _pulse.value : 1.0,
                   child: GestureDetector(
-                    onTap: () {
+                    onTap: () async {
                       if (_isListening) {
-                        _stopListening();
-                      } else {
-                        _startListening();
+                        await _stopListening();
+                      } else if (
+                      _feedback == null) {
+                        await _startListening();
                       }
                     },
                     child: Container(
-                      width: 110,
-                      height: 110,
+                      width: 120,
+                      height: 120,
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
                         color: !_sttReady
                             ? Colors.grey.shade400
                             : _isListening
                             ? Colors.red
+                            : _feedback != null
+                            ? Colors
+                            .grey.shade400
                             : Colors
                             .deepPurple,
                         boxShadow: [BoxShadow(
@@ -1094,9 +1177,8 @@ class _SpeechScreenState
                               ? Colors.grey
                               : _isListening
                               ? Colors.red
-                              : Colors
-                              .deepPurple)
-                              .withOpacity(.4),
+                              : Colors.deepPurple)
+                              .withOpacity(.35),
                           blurRadius: 20,
                           spreadRadius: 4,
                         )],
@@ -1106,7 +1188,7 @@ class _SpeechScreenState
                             ? Icons.mic
                             : Icons.mic_none,
                         color: Colors.white,
-                        size: 52,
+                        size: 56,
                       ),
                     ),
                   ),
@@ -1129,22 +1211,25 @@ class _SpeechScreenState
               BorderRadius.circular(20),
               border: _isListening
                   ? Border.all(
-                  color: Colors
-                      .red.shade200)
+                  color:
+                  Colors.red.shade200)
                   : null,
             ),
             child: Text(
               _isListening
                   ? "Tap mic again to stop"
+                  : _feedback != null
+                  ? "Tap Try Again or Next"
                   : "Tap once to start, "
                   "tap again to stop",
+              textAlign: TextAlign.center,
               style: TextStyle(
                 color: _isListening
                     ? Colors.red
                     : Colors.deepPurple,
                 fontSize: 12,
                 fontWeight: _isListening
-                    ? FontWeight.w500
+                    ? FontWeight.w600
                     : FontWeight.normal,
               ),
             ),
@@ -1154,16 +1239,15 @@ class _SpeechScreenState
     );
   }
 
-  // ── Upload UI ──────────────────────────
+
+  // UPLOAD UI
   Widget _buildUploadUI() {
     return Padding(
-      padding:
-      const EdgeInsets.symmetric(
+      padding: const EdgeInsets.symmetric(
           horizontal: 16),
       child: Container(
         width: double.infinity,
-        padding:
-        const EdgeInsets.all(24),
+        padding: const EdgeInsets.all(24),
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius:
@@ -1195,7 +1279,7 @@ class _SpeechScreenState
               const SizedBox(width: 8),
               Expanded(child: Text(
                 "Upload a WAV file from "
-                    "the FSDD dataset\n"
+                    "the FSDD dataset "
                     "(8000 Hz mono WAV)",
                 style: TextStyle(
                   fontSize: 12,
@@ -1212,10 +1296,10 @@ class _SpeechScreenState
             animation: _pulse,
             builder: (ctx, _) =>
                 Transform.scale(
-                  scale: _isProcessing
+                  scale: _isUploading
                       ? _pulse.value : 1.0,
                   child: GestureDetector(
-                    onTap: _isProcessing
+                    onTap: _isUploading
                         ? null
                         : _pickAndPredict,
                     child: Container(
@@ -1226,19 +1310,12 @@ class _SpeechScreenState
                           vertical: 22),
                       decoration: BoxDecoration(
                         gradient: LinearGradient(
-                          colors: _isProcessing
-                              ? [
-                            Colors.grey
-                                .shade400,
-                            Colors.grey
-                                .shade500,
-                          ]
-                              : [
-                            Colors
-                                .deepPurple,
+                          colors: _isUploading
+                              ? [Colors.grey.shade400,
+                            Colors.grey.shade500]
+                              : [Colors.deepPurple,
                             Colors.deepPurple
-                                .shade700,
-                          ],
+                                .shade700],
                           begin:
                           Alignment.topLeft,
                           end: Alignment
@@ -1257,9 +1334,8 @@ class _SpeechScreenState
                       ),
                       child: Column(children: [
                         Icon(
-                          _isProcessing
-                              ? Icons
-                              .hourglass_top
+                          _isUploading
+                              ? Icons.hourglass_top
                               : Icons
                               .upload_file_rounded,
                           color: Colors.white,
@@ -1267,29 +1343,25 @@ class _SpeechScreenState
                         ),
                         const SizedBox(height: 8),
                         Text(
-                          _isProcessing
-                              ? "Analysing..."
-                              : "Tap to Upload\n"
-                              "WAV File",
+                          _isUploading
+                              ? "Analysing WAV..."
+                              : "Tap to Upload\nWAV File",
                           textAlign:
                           TextAlign.center,
-                          style:
-                          const TextStyle(
+                          style: const TextStyle(
                             color: Colors.white,
                             fontSize: 16,
                             fontWeight:
                             FontWeight.bold,
                           ),
                         ),
-                        if (!_isProcessing) ...[
-                          const SizedBox(
-                              height: 4),
+                        if (!_isUploading) ...[
+                          const SizedBox(height: 4),
                           Text(
                             "Opens Music folder",
                             style: TextStyle(
                               color: Colors.white
-                                  .withOpacity(
-                                  .7),
+                                  .withOpacity(.7),
                               fontSize: 12,
                             ),
                           ),
@@ -1300,13 +1372,13 @@ class _SpeechScreenState
                 ),
           ),
 
-          if (_isProcessing) ...[
+          if (_isUploading) ...[
             const SizedBox(height: 16),
             const CircularProgressIndicator(
                 color: Colors.deepPurple),
             const SizedBox(height: 8),
             const Text(
-              "Running inference...",
+              "Running model inference...",
               style: TextStyle(
                 color: Colors.deepPurple,
                 fontSize: 13,

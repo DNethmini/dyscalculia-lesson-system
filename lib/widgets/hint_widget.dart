@@ -147,7 +147,7 @@ class _HintWidgetState
     );
   }
 
-  // ── Dots visual ───────────────────────────────
+  // Dots visual
   Widget _buildDotsVisual(int n) {
     if (n == 0) {
       return Column(children: [
@@ -240,7 +240,7 @@ class _HintWidgetState
     return colors[index % colors.length];
   }
 
-  // ── Finger visual ─────────────────────────────
+  // Finger visual
   Widget _buildFingerVisual(int n) {
     if (n > 10) return const SizedBox.shrink();
 

@@ -9,7 +9,7 @@ class ImageModel {
   List<String> _classNames = [];
   bool _isLoaded = false;
 
-  // ── Load model + class names ──────────────────────────────
+  // Load model + class names
   Future<void> loadModel() async {
     try {
       _interpreter = await Interpreter.fromAsset(
@@ -28,16 +28,15 @@ class ImageModel {
 
   bool get isReady => _isLoaded && _interpreter != null;
 
-  // ── Preprocess canvas image ───────────────────────────────
+  // Preprocess canvas image
   Float32List preprocessImage(Uint8List imageBytes) {
     img.Image? image = img.decodeImage(imageBytes);
     if (image == null) throw Exception("Failed to decode image");
 
-    // Step 1: Convert to grayscale
+    // Convert to grayscale
     img.Image grayscale = img.grayscale(image);
 
-    // Step 2: Find bounding box of dark pixels (strokes)
-    // Canvas: white background (255) + black strokes (0)
+    //  white background  + black strokes
     int top    = grayscale.height;
     int bottom = 0;
     int left   = grayscale.width;
@@ -61,25 +60,22 @@ class ImageModel {
         "top=$top, bottom=$bottom, "
         "left=$left, right=$right");
 
-    // Step 3: Square crop centered on digit
     img.Image cropped;
 
     if (found) {
       int digitH = bottom - top;
       int digitW = right  - left;
 
-      // Use larger dimension for padding calculation
       int larger = digitH > digitW ? digitH : digitW;
       int pad    = (larger * 0.4).toInt().clamp(15, 80);
 
-      // Make a SQUARE size based on larger dimension
       int size = larger + pad * 2;
 
       // Center point of the digit
       int centerX = left + digitW ~/ 2;
       int centerY = top  + digitH ~/ 2;
 
-      // Square crop coords centered on digit
+      // Square crop centered on digit
       int cropLeft   = (centerX - size ~/ 2).clamp(0, grayscale.width);
       int cropTop    = (centerY - size ~/ 2).clamp(0, grayscale.height);
       int cropRight  = (centerX + size ~/ 2).clamp(0, grayscale.width);
@@ -106,7 +102,7 @@ class ImageModel {
       cropped = grayscale;
     }
 
-    // Step 4: Resize to 28x28
+    //Resize to 28x28
     img.Image resized = img.copyResize(
       cropped,
       width: 28,
@@ -114,8 +110,7 @@ class ImageModel {
       interpolation: img.Interpolation.linear,
     );
 
-    // Step 5: Normalize + Invert
-    // Canvas: white bg (255) → 0.0, black strokes (0) → 1.0
+    // Normalize + Invert
     Float32List input = Float32List(28 * 28);
     for (int y = 0; y < 28; y++) {
       for (int x = 0; x < 28; x++) {
@@ -135,17 +130,15 @@ class ImageModel {
     return input;
   }
 
-  // ── Run prediction → returns label string ─────────────────
+  //Run prediction
   String predict(Uint8List imageBytes) {
     if (!isReady) return "Model not loaded";
 
     try {
       Float32List input = preprocessImage(imageBytes);
 
-      // Shape: [1, 28, 28, 1]
       var inputTensor = input.reshape([1, 28, 28, 1]);
 
-      // Output: [1, 14]
       var output = List.filled(1 * _classNames.length, 0.0)
           .reshape([1, _classNames.length]);
 
@@ -179,7 +172,7 @@ class ImageModel {
     }
   }
 
-  // ── Get top 3 predictions ─────────────────────────────────
+  //Get top 3 predictions
   List<Map<String, dynamic>> predictTopK(
       Uint8List imageBytes, {int k = 3}) {
     if (!isReady) return [];
@@ -208,7 +201,7 @@ class ImageModel {
     }
   }
 
-  // ── Dispose ───────────────────────────────────────────────
+  //Dispose
   void dispose() {
     _interpreter?.close();
     _isLoaded = false;

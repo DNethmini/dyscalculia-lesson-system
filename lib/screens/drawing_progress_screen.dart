@@ -55,7 +55,7 @@ class _DrawingProgressScreenState
     });
   }
 
-  // ── Stars based on score ──────────────────────
+  //Stars based on score
   int get _starCount {
     if (_total == 0) return 0;
     final pct = _correct / _total;
@@ -107,19 +107,19 @@ class _DrawingProgressScreenState
         padding: const EdgeInsets.all(16),
         child: Column(children: [
 
-          // ── Stars card ─────────────────
+          // Stars card
           _buildStarsCard(),
           const SizedBox(height: 16),
 
-          // ── Stats row ──────────────────
+          //Stats row
           _buildStatsRow(),
           const SizedBox(height: 16),
 
-          // ── Progress bar ───────────────
+          // Progress bar
           _buildProgressBar(),
           const SizedBox(height: 20),
 
-          // ── History ────────────────────
+          //History
           if (_history.isNotEmpty) ...[
             const Align(
               alignment: Alignment.centerLeft,
@@ -141,7 +141,7 @@ class _DrawingProgressScreenState
     );
   }
 
-  // ── Stars Card ────────────────────────────────
+  //Stars Card
   Widget _buildStarsCard() {
     return Container(
       width: double.infinity,
@@ -225,7 +225,7 @@ class _DrawingProgressScreenState
     );
   }
 
-  // ── Stats Row ─────────────────────────────────
+  //Stats Row
   Widget _buildStatsRow() {
     final wrong = _total - _correct;
     final pct   = _total > 0
@@ -279,7 +279,7 @@ class _DrawingProgressScreenState
     );
   }
 
-  // ── Progress Bar ──────────────────────────────
+  //Progress Bar
   Widget _buildProgressBar() {
     final pct = _total > 0
         ? _correct / _total : 0.0;
@@ -348,7 +348,7 @@ class _DrawingProgressScreenState
     );
   }
 
-  // ── History List ──────────────────────────────
+  // History List
   Widget _buildHistory() {
     final recent = _history.reversed
         .take(10).toList();
@@ -426,7 +426,7 @@ class _DrawingProgressScreenState
     );
   }
 
-  // ── Empty State ───────────────────────────────
+  //Empty State
   Widget _buildEmptyState() {
     return Container(
       padding: const EdgeInsets.all(32),
@@ -455,7 +455,7 @@ class _DrawingProgressScreenState
     );
   }
 
-  // ── Confirm Clear ─────────────────────────────
+  // Confirm Clear
   void _confirmClear(BuildContext context) {
     showDialog(
       context: context,
@@ -491,3 +491,4 @@ class _DrawingProgressScreenState
     );
   }
 }
+

@@ -8,7 +8,7 @@ class ProgressService {
   static const String _teacherPin    = 'teacher_pin';
   static const String _defaultPin    = '1234';
 
-  // ── Save drawing attempt ──────────────────────
+  // Save drawing attempt
   static Future<void> saveDrawingAttempt({
     required bool   isCorrect,
     required String question,
@@ -46,7 +46,7 @@ class ProgressService {
     }
   }
 
-  // ── Save speech attempt ───────────────────────
+  // Save speech attempt
   static Future<void> saveSpeechAttempt({
     required bool   isCorrect,
     required String question,
@@ -82,7 +82,7 @@ class ProgressService {
     }
   }
 
-  // ── Get wrong count for a question ───────────
+  //Get wrong count for a question
   static Future<int> getWrongCount(
       String key) async {
     final prefs = await SharedPreferences.getInstance();
@@ -93,7 +93,7 @@ class ProgressService {
     return (map[key] ?? 0) as int;
   }
 
-  // ── Increment wrong count ─────────────────────
+  //Increment wrong count
   static Future<void> _incrementWrongCount(
       String key) async {
     final prefs = await SharedPreferences.getInstance();
@@ -107,7 +107,7 @@ class ProgressService {
         _wrongCountKey, jsonEncode(map));
   }
 
-  // ── Reset wrong count on correct answer ──────
+  // Reset wrong count on correct answer
   static Future<void> _resetWrongCount(
       String key) async {
     final prefs = await SharedPreferences.getInstance();
@@ -120,7 +120,7 @@ class ProgressService {
         _wrongCountKey, jsonEncode(map));
   }
 
-  // ── Get drawing progress ──────────────────────
+  // Get drawing progress
   static Future<Map<String, dynamic>>
   getDrawingProgress() async {
     final prefs = await SharedPreferences.getInstance();
@@ -140,7 +140,7 @@ class ProgressService {
     };
   }
 
-  // ── Get speech progress ───────────────────────
+  //Get speech progress
   static Future<Map<String, dynamic>>
   getSpeechProgress() async {
     final prefs = await SharedPreferences.getInstance();
@@ -160,7 +160,7 @@ class ProgressService {
     };
   }
 
-  // ── Get per-digit analytics ───────────────────
+  //Get per-digit analytics
   static Future<Map<int, Map<String, int>>>
   getDigitAnalytics() async {
     final prefs = await SharedPreferences.getInstance();
@@ -211,7 +211,7 @@ class ProgressService {
     return result;
   }
 
-  // ── Get mistake patterns ──────────────────────
+  // Get mistake patterns
   static Future<List<Map<String, dynamic>>>
   getMistakePatterns() async {
     final prefs = await SharedPreferences.getInstance();
@@ -275,7 +275,7 @@ class ProgressService {
     return patterns;
   }
 
-  // ── PIN management ────────────────────────────
+  //PIN management
   static Future<bool> verifyPin(String pin) async {
     final prefs = await SharedPreferences.getInstance();
     final saved = prefs.getString(_teacherPin)
@@ -294,7 +294,7 @@ class ProgressService {
         ?? _defaultPin;
   }
 
-  // ── Clear methods ─────────────────────────────
+  //Clear methods
   static Future<void> clearAll() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_drawingKey);

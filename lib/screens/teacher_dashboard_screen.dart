@@ -13,20 +13,20 @@ class TeacherDashboardScreen
 class _TeacherDashboardScreenState
     extends State<TeacherDashboardScreen> {
 
-  // ── PIN entry state ───────────────────────────
+  //PIN entry state
   bool   _unlocked    = false;
   String _enteredPin  = '';
   bool   _pinError    = false;
   bool   _loading     = false;
 
-  // ── Dashboard data ────────────────────────────
+  // Dashboard data
   Map<String, dynamic> _drawingProgress = {};
   Map<String, dynamic> _speechProgress  = {};
   Map<int, Map<String, int>> _digitData = {};
   List<Map<String, dynamic>> _patterns  = [];
   bool _dataLoading = true;
 
-  // ── Change PIN state ──────────────────────────
+  // Change PIN state
   bool   _changingPin  = false;
   String _newPin       = '';
   String _confirmPin   = '';
@@ -326,26 +326,25 @@ class _TeacherDashboardScreenState
       padding: const EdgeInsets.all(16),
       child: Column(children: [
 
-        // ── Overall summary ───────────────────
+        //Overall summary
         _buildOverallSummary(),
         const SizedBox(height: 16),
 
-        // ── Per digit performance ─────────────
         _buildDigitHeatmap(),
         const SizedBox(height: 16),
 
-        // ── Mistake patterns ──────────────────
+        //Mistake patterns
         _buildMistakePatterns(),
         const SizedBox(height: 16),
 
-        // ── Settings ──────────────────────────
+        //Settings
         _buildSettings(),
         const SizedBox(height: 16),
       ]),
     );
   }
 
-  // ── Overall Summary ───────────────────────────
+  //Overall Summary
   Widget _buildOverallSummary() {
     final drawTotal   =
         _drawingProgress['total'] ?? 0;
@@ -473,7 +472,7 @@ class _TeacherDashboardScreenState
     );
   }
 
-  // ── Digit Heatmap ──────────────────────────────
+  //Digit Heatmap
   Widget _buildDigitHeatmap() {
     // Find most struggled digit
     int worstDigit  = -1;
@@ -677,7 +676,7 @@ class _TeacherDashboardScreenState
     ]);
   }
 
-  // ── Mistake Patterns ──────────────────────────
+  // Mistake Patterns
   Widget _buildMistakePatterns() {
     return Container(
       padding: const EdgeInsets.all(16),
@@ -695,7 +694,7 @@ class _TeacherDashboardScreenState
         children: [
 
           const Text(
-            "🔍 Mistake Patterns",
+            "Mistake Patterns",
             style: TextStyle(
               fontSize: 16,
               fontWeight: FontWeight.bold,
@@ -804,7 +803,7 @@ class _TeacherDashboardScreenState
     );
   }
 
-  // ── Settings ──────────────────────────────────
+  // Settings
   Widget _buildSettings() {
     return Container(
       padding: const EdgeInsets.all(16),
@@ -910,7 +909,7 @@ class _TeacherDashboardScreenState
     );
   }
 
-  // ── Change PIN Dialog ─────────────────────────
+  //Change PIN
   void _showChangePinDialog() {
     String newPin     = '';
     String confirmPin = '';
@@ -989,7 +988,7 @@ class _TeacherDashboardScreenState
                   ScaffoldMessenger.of(context)
                       .showSnackBar(const SnackBar(
                     content: Text(
-                        "✅ PIN updated!"),
+                        "PIN updated!"),
                     backgroundColor:
                     Colors.green,
                   ));
@@ -1016,7 +1015,7 @@ class _TeacherDashboardScreenState
         shape: RoundedRectangleBorder(
             borderRadius:
             BorderRadius.circular(16)),
-        title: const Text("⚠️ Clear All Data"),
+        title: const Text("Clear All Data"),
         content: const Text(
             "This will permanently delete ALL "
                 "student progress data. "

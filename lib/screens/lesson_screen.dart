@@ -19,7 +19,7 @@ class LessonScreen extends StatelessWidget {
         padding: const EdgeInsets.all(20),
         child: Column(children: [
 
-          // ── Welcome banner ────────────────────────
+          // Welcome banner
           Container(
             width: double.infinity,
             padding: const EdgeInsets.symmetric(
@@ -74,7 +74,7 @@ class LessonScreen extends StatelessWidget {
 
           const SizedBox(height: 16),
 
-          // ── Speech card ───────────────────────────
+          // Speech card
           _LessonCard(
             emoji: '🎤',
             title: 'Speak Numbers',
@@ -90,7 +90,7 @@ class LessonScreen extends StatelessWidget {
 
           const SizedBox(height: 16),
 
-          // ── Drawing card ──────────────────────────
+          //Drawing card
           _LessonCard(
             emoji: '✏️',
             title: 'Draw Numbers',
@@ -106,40 +106,13 @@ class LessonScreen extends StatelessWidget {
 
           const SizedBox(height: 32),
 
-          // ── Tip box ───────────────────────────────
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Colors.amber.shade50,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(
-                  color: Colors.amber.shade300, width: 1.5),
-            ),
-            child: Row(children: [
-              const Text('💡',
-                  style: TextStyle(fontSize: 28)),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  'Tip: Try both lessons every day\nto improve your score!',
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: Colors.amber.shade900,
-                    height: 1.5,
-                  ),
-                ),
-              ),
-            ]),
-          ),
-
         ]),
       ),
     );
   }
 }
 
-// ── Lesson card widget ────────────────────────────
+// Lesson card widget
 class _LessonCard extends StatelessWidget {
   final String emoji;
   final String title;

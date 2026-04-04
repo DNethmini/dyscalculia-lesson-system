@@ -9,8 +9,7 @@ class SpeechModel {
   List<String> _labelNames = [];
   bool _isLoaded = false;
 
-  // ✅ FSDD dataset settings
-  // These MUST match Kaggle Cell 5
+  // dataset settings
   static const int    sampleRate = 8000;
   static const int    nMels      = 40;
   static const int    nFft       = 512;
@@ -36,12 +35,12 @@ class SpeechModel {
       final outShape = _interpreter!
           .getOutputTensor(0).shape;
 
-      print("✅ Speech model loaded");
+      print("   Speech model loaded");
       print("   Labels: $_labelNames");
       print("   Input:  $inShape");
       print("   Output: $outShape");
     } catch (e) {
-      print("❌ Load error: $e");
+      print("   Load error: $e");
     }
   }
 
@@ -58,7 +57,7 @@ class SpeechModel {
     }
   }
 
-  // ── Main predict ──────────────────────
+  //Main predict
   String predict(Uint8List wavBytes) {
     if (!isReady) return "-1";
 
@@ -118,7 +117,6 @@ class SpeechModel {
     }
   }
 
-  // ── Parse WAV + Auto Resample ─────────
   Float32List _parseWav(Uint8List bytes) {
     try {
       int offset = 44;
@@ -187,12 +185,11 @@ class SpeechModel {
 
       return raw;
     } catch (e) {
-      print("⚠️ WAV error: $e");
+      print("WAV error: $e");
       return Float32List(sampleRate);
     }
   }
 
-  // ── Linear interpolation resample ────
   Float32List _resample(
       Float32List input,
       int fromRate,
@@ -219,7 +216,6 @@ class SpeechModel {
     return out;
   }
 
-  // ── Pad or trim to 1 second ───────────
   Float32List _padOrTrim(Float32List s) {
     final target = sampleRate;
     final out    = Float32List(target);
@@ -232,7 +228,6 @@ class SpeechModel {
     return out;
   }
 
-  // ── STFT ──────────────────────────────
   List<Float32List> _stft(Float32List s) {
     final nF =
         (s.length - nFft) ~/ hopLength + 1;
@@ -271,7 +266,7 @@ class SpeechModel {
     return out;
   }
 
-  // ── Mel filterbank ────────────────────
+  // Mel filterbank
   List<Float32List> _melFilterbank() {
     final nB = nFft ~/ 2 + 1;
 
@@ -328,7 +323,6 @@ class SpeechModel {
     return filters;
   }
 
-  // ── Apply mel filters ─────────────────
   List<Float32List> _applyMel(
       List<Float32List> frames,
       List<Float32List> filters) {
@@ -347,7 +341,7 @@ class SpeechModel {
     }).toList();
   }
 
-  // ── Power to dB ───────────────────────
+  //Power to dB
   List<Float32List> _toDb(
       List<Float32List> mel) {
     double maxVal = 1e-10;
@@ -368,7 +362,7 @@ class SpeechModel {
     }).toList();
   }
 
-  // ── Normalize [0, 1] ──────────────────
+  // Normalize [0, 1]
   List<Float32List> _normalize(
       List<Float32List> spec) {
     double minVal =  double.infinity;
@@ -390,7 +384,7 @@ class SpeechModel {
     }).toList();
   }
 
-  // ── Resize to imgSize × imgSize ───────
+  //Resize to imgSize × imgSize
   Float32List _resize(
       List<Float32List> spec) {
     final out =
