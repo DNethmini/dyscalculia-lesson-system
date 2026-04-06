@@ -1007,7 +1007,7 @@ class _TeacherDashboardScreenState
     );
   }
 
-  // ── Confirm clear all ─────────────────────────
+  // Confirm clear all
   void _confirmClearAll() {
     showDialog(
       context: context,

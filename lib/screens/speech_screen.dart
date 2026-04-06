@@ -1278,9 +1278,7 @@ class _SpeechScreenState
                   size: 16),
               const SizedBox(width: 8),
               Expanded(child: Text(
-                "Upload a WAV file from "
-                    "the FSDD dataset "
-                    "(8000 Hz mono WAV)",
+                "Upload a WAV file",
                 style: TextStyle(
                   fontSize: 12,
                   color:
